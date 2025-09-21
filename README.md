@@ -2,26 +2,14 @@
 
 A  pipeline for multi-layer language steering on Llama-3.1-8B, enabling fine-grained control over Hindi and English text generation through sparse autoencoder (SAE) feature manipulation.
 
+###  Tools Used :
+- WinSCP for Easier File Transfer
+- OpenSSH for Windows Terminal
+
 ### 1. Install Dependencies
 
 ```bash
-# Core ML libraries
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-
-# Transformers and datasets
-pip install transformers datasets accelerate
-
-# Scientific computing
-pip install numpy scipy scikit-learn
-
-# Visualization and UI
-pip install matplotlib seaborn gradio
-
-# HTTP requests and utilities
-pip install requests tqdm
-
-# Optional: For better performance
-pip install flash-attn --no-build-isolation
+pip install -r test_requirements.txt
 ```
 
 ### 2. Set Environment Variables
