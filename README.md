@@ -29,18 +29,19 @@ export CUDA_VISIBLE_DEVICES=0
 
 ```bash
 # Debug run (quick test with 2 layers)
-python he_steer_pipeline.py --debug
+python3 he_steer_pipeline.py --debug
 
 # Full research run (scans all layers, selects top 3)
-python he_steer_pipeline.py
+python3 he_steer_pipeline.py
 
 # Custom configuration
-python he_steer_pipeline.py --scan_all_layers --top_k_layers 5 --bonferroni --min_effect_size 0.5
+python3 he_steer_pipeline.py --scan_all_layers --top_k_layers 5 --bonferroni --min_effect_size 0.5
 ```
 
 ##  System Requirements
 
 - **GPU**: A100 (80GB)
+- **OS**(Optional): Ubuntu CUDA 12
 - **RAM**: 64GB+ system memory
 - **Storage**: 100GB+ free space
 - **Python**: 3.9+
