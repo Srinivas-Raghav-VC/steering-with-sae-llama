@@ -41,7 +41,7 @@ python3 he_steer_pipeline.py --scan_all_layers --top_k_layers 5 --bonferroni --m
 ##  System Requirements
 
 - **GPU**: A100 (80GB)
-- **OS**(Optional): Ubuntu CUDA 12
+- **OS**(Optional): Ubuntu CUDA 12.xx
 - **RAM**: 64GB+ system memory
 - **Storage**: 100GB+ free space
 - **Python**: 3.9+
