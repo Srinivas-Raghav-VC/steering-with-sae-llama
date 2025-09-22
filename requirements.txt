@@ -8,6 +8,7 @@ transformers>=4.30.0
 datasets>=2.12.0
 accelerate>=0.20.0
 tokenizers>=0.13.0
+flash-attn>=2.8.3 
 
 # Scientific Computing
 numpy>=1.24.0
@@ -31,3 +32,4 @@ tqdm>=4.65.0
 # Optional: Additional ML libraries
 # wandb>=0.15.0       # For experiment tracking
 # tensorboard>=2.13.0 # For visualization
+
