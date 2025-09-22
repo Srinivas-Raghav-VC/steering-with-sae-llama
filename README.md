@@ -9,7 +9,7 @@ A  pipeline for multi-layer language steering on Llama-3.1-8B, enabling fine-gra
 ### 1. Install Dependencies
 
 ```bash
-pip install -r test_requirements.txt
+pip install -r requirements.txt
 ```
 
 ### 2. Set Environment Variables
