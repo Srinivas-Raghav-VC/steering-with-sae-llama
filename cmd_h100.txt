@@ -1,0 +1,11 @@
+use # H100: mid-layer singles (quick flip check)
+python3 he_steer_pipeline.py --layers 20 --train-epochs 90 --samples-per-language 9000 --mode shadow_hindi --steer-alpha 2.2 --norm-clamp-ratio 0.35 --intervention-scope sequence --top-k-per-layer 40 --eval-prompts 48 --feature-ranking causal --h100 --steer-qk --steer-qv-strength 0.6 && python3 he_steer_pipeline.py --layers 19 --train-epochs 90 --samples-per-language 9000 --mode shadow_hindi --steer-alpha 2.2 --norm-clamp-ratio 0.35 --intervention-scope sequence --top-k-per-layer 40 --eval-prompts 48 --feature-ranking causal --h100
+
+# H100: pair (only if singles look good)
+python3 he_steer_pipeline.py --layers 19,20 --train-epochs 90 --samples-per-language 9000 --mode shadow_hindi --steer-alpha 2.2 --norm-clamp-ratio 0.35 --intervention-scope sequence --top-k-per-layer 32 --feature-ranking causal --steer-qk --steer-qv-strength 0.6 --eval-prompts 48 --h100
+
+# H100: higher clamp & wider feature pool stress test
+python3 he_steer_pipeline.py --layers 19,20 --train-epochs 90 --samples-per-language 9000 --mode shadow_hindi --steer-alpha 2.3 --norm-clamp-ratio 0.45 --intervention-scope sequence --top-k-per-layer 48 --feature-ranking causal --eval-prompts 48 --h100
+
+# H100: late-layer probe (only if mid-band saturates)
+python3 he_steer_pipeline.py --layers 30 --train-epochs 90 --samples-per-language 9000 --mode shadow_hindi --steer-alpha 2.2 --norm-clamp-ratio 0.35 --intervention-scope sequence --top-k-per-layer 40 --eval-prompts 48 --feature-ranking causal --h100
