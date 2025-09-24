@@ -15,7 +15,7 @@ import seaborn as sns
 
 
 def load_json(p):
-    with open(p, "r") as f:
+    with open(p, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -30,6 +30,7 @@ def add_critical_plots(out_dir, results, eval_results):
             prompt_types = []
             success = []
 
+            target = (eval_results or {}).get("target", "english")
             for r in records:
                 prompt = r.get("prompt", "")
                 # Detect prompt type based on content
@@ -43,7 +44,7 @@ def add_critical_plots(out_dir, results, eval_results):
                     prompt_types.append("Hinglish")
                 else:
                     prompt_types.append("English")
-                success.append(1 if r.get("steered_lang") == "english" else 0)
+                success.append(1 if r.get("steered_lang") == target else 0)
 
             if prompt_types and success:
                 df_prompt = pd.DataFrame({"type": prompt_types, "success": success})
@@ -155,7 +156,7 @@ def add_critical_plots(out_dir, results, eval_results):
     judge_path = out_dir / "llm_judge_gemini.json"
     if judge_path.exists():
         try:
-            with open(judge_path, "r") as f:
+            with open(judge_path, "r", encoding="utf-8") as f:
                 judge = json.load(f)
             summary = judge.get("summary", {}) if isinstance(judge, dict) else {}
             if summary:
@@ -183,7 +184,12 @@ def add_critical_plots(out_dir, results, eval_results):
 
             # Optional: per-record overall histogram if available
             recs = judge.get("records", []) if isinstance(judge, dict) else []
-            overall = [float(r.get("overall_success", 0.0)) for r in recs if r.get("overall_success") is not None]
+            overall = []
+            for r in recs:
+                j = r.get("judge", {}) if isinstance(r, dict) else {}
+                v = j.get("overall_success", None)
+                if isinstance(v, (int, float)):
+                    overall.append(float(v))
             if overall:
                 plt.figure(figsize=(6, 4))
                 sns.histplot(overall, bins=20, color="#9467bd")
@@ -237,11 +243,40 @@ def create_summary_table(out_dir, results, eval_results):
             f"L{max_weight_layer} ({weights[max_weight_layer]:.3f})"
         )
 
+    # Include aggregate stats (flip rate, changed rate) if available
+    aggregate = results.get("aggregate", {})
+    if aggregate:
+        summary["Metric"].append("Aggregate Flip Rate")
+        summary["Value"].append(
+            f"{aggregate.get('successes', 0)}/{aggregate.get('total_prompts', 0)} "
+            f"({aggregate.get('flip_rate', float('nan')):.3f})"
+        )
+        summary["Metric"].append("Aggregate Changed Rate")
+        summary["Value"].append(
+            f"{aggregate.get('changed_prompts', 0)}/{aggregate.get('total_prompts', 0)} "
+            f"({aggregate.get('changed_rate', float('nan')):.3f})"
+        )
+
+    # Include quality metrics if the pipeline produced them
+    quality_metrics = results.get("quality_metrics") or {}
+    if quality_metrics:
+        summary["Metric"].append("ΔPPL (mean/median)")
+        summary["Value"].append(
+            f"{quality_metrics.get('mean_delta_ppl', float('nan')):.3f} / "
+            f"{quality_metrics.get('median_delta_ppl', float('nan')):.3f}"
+        )
+        if "mean_semantic_similarity" in quality_metrics:
+            summary["Metric"].append("Semantic Similarity (mean/median)")
+            summary["Value"].append(
+                f"{quality_metrics.get('mean_semantic_similarity', float('nan')):.3f} / "
+                f"{quality_metrics.get('median_semantic_similarity', float('nan')):.3f}"
+            )
+
     df_summary = pd.DataFrame(summary)
     df_summary.to_csv(tab_dir / "summary_stats.csv", index=False)
 
     # Also create markdown table
-    with open(tab_dir / "summary.md", "w") as f:
+    with open(tab_dir / "summary.md", "w", encoding="utf-8") as f:
         f.write("# Pipeline Summary Statistics\n\n")
         f.write(df_summary.to_markdown(index=False))
         f.write("\n\n## Notes\n")
@@ -272,6 +307,10 @@ def main(results_dir: str):
     # 0) Optionally load LLM-judge results (Gemini)
     llm_judge_path = out_dir / "llm_judge_gemini.json"
     llm_judge = load_json(llm_judge_path) if llm_judge_path.exists() else {}
+
+    # 0.1) Optionally load detector calibration summary and copy key stats into tables/README
+    calib_path = out_dir / "detector_calibration.json"
+    calib = load_json(calib_path) if calib_path.exists() else {}
 
     # 1) Layer scores
     ls_path = out_dir / "layer_scores.json"
@@ -465,9 +504,33 @@ def main(results_dir: str):
 
     # 4.5) SAE L0 Evolution Tracking (critical for debugging L0 collapse)
     sae_metrics_path = out_dir / "sae_training_metrics.json"
+    cfg = results.get("config", {}) if isinstance(results, dict) else {}
+    ckpt_dir = Path(cfg.get("ckpt_dir", str(out_dir)))
+    layer_metric_files = sorted(ckpt_dir.glob("sae_layer*_metrics.jsonl"))
+    sae_data = None
     if sae_metrics_path.exists():
         print("📊 Generating SAE L0 evolution plots...")
         sae_data = load_json(sae_metrics_path)
+    elif layer_metric_files:
+        print("📊 Aggregating SAE metrics from per-layer logs...")
+        sae_data = {}
+        for path in layer_metric_files:
+            try:
+                layer_key = path.stem.split("_")[1].lstrip("layer")
+            except Exception:
+                layer_key = path.stem
+            sae_data[layer_key] = {"epochs": [], "l0_history": [], "target": None}
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        rec = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    sae_data[layer_key]["epochs"].append(rec.get("epoch"))
+                    sae_data[layer_key]["l0_history"].append(rec.get("train_last", {}).get("l0_soft"))
+                    if sae_data[layer_key]["target"] is None:
+                        sae_data[layer_key]["target"] = rec.get("l0_target", 0)
+    if sae_data:
         for layer_str, metrics in sae_data.items():
             try:
                 layer = int(layer_str)
@@ -524,7 +587,7 @@ def main(results_dir: str):
         success = np.mean(
             df_eval["steered_lang"] == eval_results.get("target", "english")
         )
-        with open(tab_dir / "evaluation_summary.txt", "w") as f:
+        with open(tab_dir / "evaluation_summary.txt", "w", encoding="utf-8") as f:
             f.write(
                 f"Success rate ({eval_results.get('mode','shadow_hindi')} → {eval_results.get('target','english')}): {success:.3f}\n"
             )
@@ -621,22 +684,80 @@ def main(results_dir: str):
     if strict_flip_rate is not None:
         qa_rows.append({"metric": "strict_flip_rate", "value": strict_flip_rate})
 
+    qa_md = ""
     if qa_rows:
-        import pandas as pd
         df_qa = pd.DataFrame(qa_rows)
         df_qa.to_csv(tab_dir / "quality_aware_summary.csv", index=False)
-        with open(rep_dir / "report.md", "a") as f:
-            f.write("\n## Quality-aware Success Summary\n")
-            for _, row in df_qa.iterrows():
-                f.write(f"- {row['metric']}: {row['value']}\n")
+        # Prepare a markdown snippet to embed later in the report
+        qa_md_lines = ["\n## Quality-aware Success Summary\n"]
+        for _, row in df_qa.iterrows():
+            qa_md_lines.append(f"- {row['metric']}: {row['value']}")
+        qa_md = "\n".join(qa_md_lines) + "\n"
+
+    # 7.6) Quality metrics figures (optional): Perplexity deltas and semantic similarity
+    recs_for_quality = results.get("results", []) if isinstance(results, dict) else []
+    if recs_for_quality:
+        ppl_deltas = []
+        sims = []
+        for r in recs_for_quality:
+            pb = r.get("ppl_baseline")
+            ps = r.get("ppl_steered")
+            sim = r.get("semantic_sim")
+            try:
+                if pb is not None and ps is not None:
+                    ppl_deltas.append(float(ps) - float(pb))
+            except Exception:
+                pass
+            try:
+                if sim is not None:
+                    sims.append(float(sim))
+            except Exception:
+                pass
+        if ppl_deltas:
+            plt.figure(figsize=(6,4))
+            sns.histplot(ppl_deltas, bins=30, color="#1f77b4")
+            plt.title("Perplexity delta (steered − baseline)")
+            plt.xlabel("Δ PPL")
+            plt.tight_layout()
+            plt.savefig(fig_dir / "ppl_delta_hist.png", dpi=200)
+            plt.close()
+        if sims:
+            plt.figure(figsize=(6,4))
+            sns.histplot(sims, bins=30, color="#2ca02c")
+            plt.title("Semantic similarity: baseline vs steered")
+            plt.xlabel("Cosine similarity")
+            plt.xlim(-1.0, 1.0)
+            plt.tight_layout()
+            plt.savefig(fig_dir / "semantic_similarity_hist.png", dpi=200)
+            plt.close()
+
+    # 7.7) If calibration exists, write a small table and note for the report
+    if calib:
+        try:
+            summary = calib.get("summary", {}) if isinstance(calib, dict) else {}
+            acc = float(summary.get("accuracy", float("nan")))
+            macro_f1 = float(summary.get("macro_f1", float("nan")))
+            used_gem = summary.get("used_gemini", False)
+            dataset_name = calib.get("dataset_name", "calibration")
+            with open(tab_dir / "detector_calibration_summary.txt", "w", encoding="utf-8") as f:
+                f.write(f"Dataset: {dataset_name}\n")
+                f.write(f"Accuracy: {acc:.4f}\n")
+                f.write(f"Macro-F1: {macro_f1:.4f}\n")
+                f.write(f"Gemini used: {used_gem}\n")
+        except Exception as e:
+            print(f"Warning: Could not write calibration summary: {e}")
 
     # 8) Write a comprehensive README.md for the report folder
-    with open(rep_dir / "report.md", "w") as f:
+    with open(rep_dir / "report.md", "w", encoding="utf-8") as f:
         f.write("# Language Steering Pipeline Report\n\n")
         f.write("## Overview\n")
         f.write(
             "This report contains comprehensive analysis of the Hindi-English language steering pipeline.\n\n"
         )
+
+        # If available, include QA section near the top
+        if qa_md:
+            f.write(qa_md)
 
         f.write("## Tables\n")
         f.write("### Core Results\n")
@@ -679,6 +800,11 @@ def main(results_dir: str):
             f.write(f"- `{p.name}` - Top feature activation patterns\n")
         for p in sorted(fig_dir.glob("deltaL2_heatmap*.png")):
             f.write(f"- `{p.name}` - Delta L2 heatmap by layer and prompt\n")
+
+        # If calibration confusion heatmap exists, list it
+        if (fig_dir / "detector_confusion.png").exists():
+            f.write("\n### Detector Calibration\n")
+            f.write("- `detector_confusion.png` - Language detector confusion heatmap (row-normalized)\n")
 
         f.write("\n## Usage Notes\n")
         f.write("- **SAE L0 plots**: Critical for debugging L0 collapse issues\n")

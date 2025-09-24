@@ -16,8 +16,9 @@ record on:
 
 Notes:
   - Requires google-generativeai (see requirements.txt) and GEMINI_API_KEY env.
-  - Runs post-hoc; does not make API calls inside training/extraction loops.
-  - Safe to sub-sample with --limit for cost control.
+    - Runs post-hoc; does not make API calls inside training/extraction loops.
+    - Safe to sub-sample with --limit for cost control.
+    - Treat these scores as supplemental; include human review for publication-level results.
 """
 
 import argparse
@@ -30,32 +31,103 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel, Field, ValidationError
 
-JUDGE_PROMPT = """
-You are an impartial evaluator judging language steering quality.
+try:
+    import google.generativeai as genai
+except ImportError:
+    print("Error: google-generativeai not installed. Run: pip install google-generativeai")
+    sys.exit(1)
 
-Task: Compare the BASELINE vs STEERED outputs for the original PROMPT. The
-goal is: if the prompt is Hindi (shadow_hindi mode), the steered output should
-be primarily ENGLISH, preserving meaning and being coherent/grammatical.
 
-Please return ONLY a compact JSON object with float scores 0..1 and a short explanation:
-{
-  "language_compliance": <0..1>,
-  "meaning_preservation": <0..1>,
-  "coherence_fluency": <0..1>,
-  "overall_success": <0..1>,
-  "explanation": "..."
+class JudgeScores(BaseModel):
+    """Structured response model for Gemini judge scores."""
+    language_compliance: float = Field(ge=0.0, le=1.0, description="How well does the steered output comply with target language?")
+    meaning_preservation: float = Field(ge=0.0, le=1.0, description="How well is the original meaning preserved?")
+    coherence_fluency: float = Field(ge=0.0, le=1.0, description="How coherent and fluent is the steered output?")
+    overall_success: float = Field(ge=0.0, le=1.0, description="Overall success of the steering intervention")
+    explanation: str = Field(description="Brief explanation of the scores")
+
+
+GENERATION_CONFIG = {
+    "temperature": 0.0,
+    "top_p": 0.0,
+    "response_mime_type": "application/json",
 }
 
-PROMPT:
-{prompt}
 
-BASELINE OUTPUT:
-{baseline}
+def _call_gemini_structured(model, prompt: str) -> Dict[str, Any]:
+    """Call Gemini with structured JSON response validation."""
+    # Try to use gemini-groundcite if installed
+    try:
+        from gemini_groundcite import ensure_json  # type: ignore
+        return ensure_json(model=model, prompt=prompt, response_model=JudgeScores)
+    except Exception:
+        ensure_json = None
 
-STEERED OUTPUT:
-{steered}
-""".strip()
+    # Fallback to manual structured response
+    full_prompt = f"""{prompt}
+
+Please respond with a valid JSON object matching this exact schema:
+{{
+    "language_compliance": <float between 0.0 and 1.0>,
+    "meaning_preservation": <float between 0.0 and 1.0>,
+    "coherence_fluency": <float between 0.0 and 1.0>,
+    "overall_success": <float between 0.0 and 1.0>,
+    "explanation": "<brief explanation string>"
+}}"""
+
+    try:
+        response = model.generate_content(
+            full_prompt,
+            generation_config=GENERATION_CONFIG,
+        )
+
+        raw_text = getattr(response, "text", "") or ""
+
+        if not raw_text:
+            return {"error": f"No text response (finish_reason: {response.candidates[0].finish_reason if response.candidates else 'unknown'})"}
+
+        parsed = _safe_json_parse(raw_text) or {}
+
+        # Validate with Pydantic
+        validated = JudgeScores(**parsed)
+        return validated.model_dump()
+    except ValidationError as e:
+        raise ValueError(f"Judge response failed validation: {e}") from e
+    except Exception as e:
+        raise ValueError(f"Gemini API call failed: {e}") from e
+
+
+def _build_judge_prompt(prompt: str, baseline: str, steered: str) -> str:
+    """Construct a sanitized JSON-based prompt for Gemini judging.
+    Encapsulates inputs in a JSON block to reduce injection risk and keeps instructions concise.
+    """
+    payload = {
+        "task": "Evaluate language translation quality between baseline and modified outputs.",
+        "goal": "Transform Hindi input to English output while preserving meaning.",
+        "inputs": {
+            "prompt": prompt,
+            "baseline": baseline,
+            "steered": steered,
+        },
+        "instructions": [
+            "Rate each aspect from 0.0 to 1.0",
+            "Respond ONLY with a JSON object matching the requested schema",
+        ],
+        "schema": {
+            "language_compliance": "float 0..1",
+            "meaning_preservation": "float 0..1",
+            "coherence_fluency": "float 0..1",
+            "overall_success": "float 0..1",
+            "explanation": "short string",
+        },
+    }
+    return (
+        "You are a careful evaluator. Read the JSON payload and return a JSON object with the requested numeric scores.\n\n"
+        f"Payload:\n{json.dumps(payload, ensure_ascii=False)[:6000]}\n\n"
+        "Return a JSON object with keys: language_compliance, meaning_preservation, coherence_fluency, overall_success, explanation."
+    )
 
 
 def _safe_json_parse(s: str) -> Optional[Dict[str, Any]]:
@@ -76,7 +148,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", required=True, help="Path to results_sae_only.json")
     ap.add_argument("--out", required=True, help="Where to write LLM-judge scores JSON")
-    ap.add_argument("--model", default="gemini-1.5-flash", help="Gemini model name")
+    ap.add_argument("--model", default="gemini-2.0-flash", help="Gemini model name")
     ap.add_argument("--limit", type=int, default=0, help="Max records to score (0 = all)")
     ap.add_argument("--sleep", type=float, default=0.5, help="Delay between calls (seconds)")
     ap.add_argument("--dry-run", action="store_true", help="Print prompts only, no API calls")
@@ -115,10 +187,8 @@ def main():
 
     if args.dry_run:
         for r in records[:3]:  # show first few
-            prompt = JUDGE_PROMPT.format(
-                prompt=r.get("prompt", ""),
-                baseline=r.get("baseline", ""),
-                steered=r.get("steered", ""),
+            prompt = _build_judge_prompt(
+                r.get("prompt", ""), r.get("baseline", ""), r.get("steered", "")
             )
             print("\n----- EVAL PROMPT SAMPLE -----\n")
             print(prompt[:1200])
@@ -138,13 +208,23 @@ def main():
         sys.exit(3)
 
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(args.model)
+
+    # Configure safety settings to avoid over-blocking evaluation content
+    safety_settings = {
+        "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_NONE",
+        "HARM_CATEGORY_HARASSMENT": "BLOCK_ONLY_HIGH",
+        "HARM_CATEGORY_HATE_SPEECH": "BLOCK_ONLY_HIGH",
+        "HARM_CATEGORY_SEXUALLY_EXPLICIT": "BLOCK_ONLY_HIGH",
+    }
+
+    try:
+        model = genai.GenerativeModel(args.model, safety_settings=safety_settings)
+    except Exception:
+        model = genai.GenerativeModel(args.model)
 
     for i, r in enumerate(records):
-        prompt = JUDGE_PROMPT.format(
-            prompt=r.get("prompt", ""),
-            baseline=r.get("baseline", ""),
-            steered=r.get("steered", ""),
+        prompt = _build_judge_prompt(
+            r.get("prompt", ""), r.get("baseline", ""), r.get("steered", "")
         )
         # Hash key by prompt/baseline/steered
         h = hashlib.sha256()
@@ -157,9 +237,7 @@ def main():
             parsed = cache[key]
         else:
             try:
-                resp = model.generate_content(prompt)
-                txt = getattr(resp, "text", None) or "".join([p.text for p in (resp.candidates or []) if getattr(p, "text", None)])
-                parsed = _safe_json_parse(txt) or {}
+                parsed = _call_gemini_structured(model, prompt)
             except Exception as e:
                 parsed = {"error": str(e)}
             # Save to cache
@@ -202,11 +280,14 @@ def main():
                 cnt[k] = cnt.get(k, 0) + 1
     summary = {k: (agg.get(k, 0.0) / max(1, cnt.get(k, 0))) for k in keys}
 
+    summary_with_count = dict(summary)
+    summary_with_count["count"] = len(out_items)
+
     out = {
         "mode": mode,
         "model": args.model,
         "scored": len(out_items),
-        "summary": summary,
+        "summary": summary_with_count,
         "records": out_items,
     }
 
@@ -248,16 +329,24 @@ def main():
 
             quality_aware = {
                 "strict_flip_rate": strict_flip_rate,
-                "judge_summary": summary,
+                "judge_summary": summary_with_count,
                 "combined_success": combined,
                 "source": {
                     "llm_judge_file": str(out_path),
                     "model": args.model,
                 },
+                "scored_examples": len(out_items),
             }
 
             # Attach to results JSON
+            res.setdefault("quality_aware_history", [])
             res["quality_aware"] = quality_aware
+            res["quality_aware_history"].append(
+                {
+                    "timestamp": time.time(),
+                    "quality_aware": quality_aware,
+                }
+            )
             if combined is not None:
                 res["quality_aware_success"] = combined
 

@@ -81,7 +81,10 @@ opencv-python>=4.8.0
 click>=8.1.0
 rich>=13.6.0
 typer>=0.9.0
-pydantic>=2.5.0
+pydantic>=2.7.0
+
+# Enhanced language detection and judging
+steering-vectors>=0.2.0
 
 # For SSH deployment
 paramiko>=3.3.0
@@ -103,6 +106,10 @@ python-dotenv>=1.0.0
 
 # Optional: LLM-as-judge (Gemini)
 google-generativeai>=0.7.2
+
+# Note: If you install Torch from a CUDA-specific index URL manually (setup.txt step 5),
+# you may want to install requirements with `--no-deps` or install Torch first,
+# then `pip install -r requirements.txt` to avoid index conflicts.
 
 # Optional kernel accelerators (auto-registered if installed)
 lookahead-keys-attention>=0.1.0

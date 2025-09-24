@@ -1,0 +1,52 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter/IPython
+.ipynb_checkpoints/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+
+# Logs
+logs/
+*.log
+
+# Project outputs
+he_pipeline_results/
+he_checkpoints/
+he_checkpoints_backup/
+test_pipeline_results/
+test_figs/
+test_bias_eval/
+
+# Reports and figures
+figs/
+reports/
+
+# Cache/data
+cache/
+.data/
+**/.cache/
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# Misc
+*.tmp
+*.bak
+**/*.swp

@@ -1,0 +1,38 @@
+# Pinned runtime constraints (optional but recommended)
+# Use with: pip install -r constraints.txt --constraint constraints.txt
+# These versions reflect a tested run as of 2025-09-24; adjust if your CUDA/toolchain differs.
+
+# Core
+torch==2.3.1
+torchvision==0.18.1
+torchaudio==2.3.1
+transformers==4.43.3
+accelerate==0.33.0
+datasets==2.21.0
+tokenizers==0.15.2
+huggingface-hub==0.24.6
+
+# Optional accelerators (install only if compatible with your GPU/driver)
+flash-attn==2.5.8
+xformers==0.0.27.post2
+triton==2.3.1
+
+# Science/plotting
+numpy==1.26.4
+scipy==1.13.1
+pandas==2.2.2
+matplotlib==3.9.2
+seaborn==0.13.2
+
+# ML utils
+scikit-learn==1.5.1
+tqdm==4.66.4
+
+# Dev
+black==24.8.0
+flake8==7.1.1
+mypy==1.11.2
+pytest==8.3.3
+
+# LLM judge (optional)
+google-generativeai==0.7.2

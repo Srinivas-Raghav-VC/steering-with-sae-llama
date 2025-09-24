@@ -28,7 +28,14 @@ import torch
 # Use vendored Gemini labeler (with graceful fallback)
 GeminiFeatureLabeler = None  # type: ignore
 try:
-    from tools.gemini_feature_labeler import GeminiFeatureLabeler  # type: ignore
+    # Try relative import first
+    try:
+        from .gemini_feature_labeler import GeminiFeatureLabeler  # type: ignore
+    except ImportError:
+        # Try absolute import from tools
+        import sys
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        from gemini_feature_labeler import GeminiFeatureLabeler  # type: ignore
 except Exception:
     GeminiFeatureLabeler = None  # type: ignore
 
@@ -137,6 +144,9 @@ def main():
 
     # Proceed even without API key; the vendored labeler will fall back to a heuristic
     labeler = GeminiFeatureLabeler(api_key=os.getenv("GEMINI_API_KEY"))
+    used_gemini = bool(getattr(labeler, "_client", None))
+    if not used_gemini:
+        print("⚠️  Gemini unavailable – falling back to heuristic feature labels.")
 
     labels: Dict[str, str] = {}
     for key, meta in feature_prompts.items():
@@ -148,9 +158,17 @@ def main():
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "labels": labels,
+        "metadata": {
+            "total_features": len(labels),
+            "used_gemini": used_gemini,
+        },
+    }
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(labels, f, indent=2, ensure_ascii=False)
-    print(f"Wrote labels to {out_path}")
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+    mode = "Gemini" if used_gemini else "heuristic"
+    print(f"Wrote {len(labels)} labels to {out_path} ({mode})")
 
 
 if __name__ == "__main__":

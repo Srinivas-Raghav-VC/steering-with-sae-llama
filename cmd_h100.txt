@@ -1,4 +1,7 @@
-use # H100: mid-layer singles (quick flip check)
+# H100: quick sanity (fast)
+python3 he_steer_pipeline.py --debug --layers 20 --mode shadow_hindi --feature-ranking stats --intervention-scope last --h100
+
+# H100: mid-layer singles (quick flip check)
 python3 he_steer_pipeline.py --layers 20 --train-epochs 90 --samples-per-language 9000 --mode shadow_hindi --steer-alpha 2.2 --norm-clamp-ratio 0.35 --intervention-scope sequence --top-k-per-layer 40 --eval-prompts 48 --feature-ranking causal --h100 --steer-qk --steer-qv-strength 0.6 && python3 he_steer_pipeline.py --layers 19 --train-epochs 90 --samples-per-language 9000 --mode shadow_hindi --steer-alpha 2.2 --norm-clamp-ratio 0.35 --intervention-scope sequence --top-k-per-layer 40 --eval-prompts 48 --feature-ranking causal --h100
 
 # H100: pair (only if singles look good)
@@ -9,3 +12,6 @@ python3 he_steer_pipeline.py --layers 19,20 --train-epochs 90 --samples-per-lang
 
 # H100: late-layer probe (only if mid-band saturates)
 python3 he_steer_pipeline.py --layers 30 --train-epochs 90 --samples-per-language 9000 --mode shadow_hindi --steer-alpha 2.2 --norm-clamp-ratio 0.35 --intervention-scope sequence --top-k-per-layer 40 --eval-prompts 48 --feature-ranking causal --h100
+
+# H100: label-aware pair variant
+python3 he_steer_pipeline.py --layers 19,20 --train-epochs 90 --samples-per-language 9000 --mode shadow_hindi --steer-alpha 2.2 --norm-clamp-ratio 0.35 --intervention-scope sequence --top-k-per-layer 32 --feature-ranking label --use-feature-labels --feature-labels-path he_pipeline_results/feature_labels.json --h100

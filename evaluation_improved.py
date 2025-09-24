@@ -6,6 +6,7 @@ Measures both target language shadowing AND source language preservation.
 """
 
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -13,71 +14,25 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 from pathlib import Path
 
-# Language detection utilities
-_DEV_RE = re.compile(r"[\u0900-\u097F]")
-_ROMAN_HI_MARKERS = set("""
-hai hain hoon raha rahe rahi mera meri mere kya nahi ka ki ke mein hum aap tum
-bhai yaar ghar pyar tera tere tumhara tumhari kuch bahut accha theek
-""".split())
-_WORD_RE = re.compile(r"[A-Za-z']+")
+from tools.lang_detect import classify_language, normalized_edit_distance, devanagari_ratio, TEXT_CHANGE_THRESHOLD
 
-def devanagari_ratio(text: str) -> float:
-    """Calculate ratio of Devanagari characters in text."""
-    if not text:
-        return 0.0
-    dev_chars = sum(1 for ch in text if _DEV_RE.match(ch))
-    alpha_chars = sum(1 for ch in text if ch.isalpha())
-    return dev_chars / max(1, alpha_chars)
+"""
+Note: This evaluator now imports the shared, calibrated detector and helpers
+from tools.lang_detect to ensure consistency across the repo.
+"""
 
-def romanized_hindi_ratio(text: str) -> float:
-    """Detect romanized Hindi markers in text."""
-    tokens = _WORD_RE.findall(text.lower())
-    if not tokens:
-        return 0.0
-    marker_hits = sum(1 for t in tokens if t in _ROMAN_HI_MARKERS)
-    return marker_hits / len(tokens)
 
-def english_marker_ratio(text: str) -> float:
-    """Detect English-specific markers."""
-    english_markers = {"the", "and", "is", "are", "was", "were", "have", "has",
-                      "been", "will", "would", "could", "should", "this", "that",
-                      "these", "those", "which", "what", "when", "where"}
-    tokens = _WORD_RE.findall(text.lower())
-    if not tokens:
-        return 0.0
-    marker_hits = sum(1 for t in tokens if t in english_markers)
-    return marker_hits / len(tokens)
-
-def classify_language(text: str) -> Tuple[str, float]:
+def classify_language_with_validation(text: str, validation_threshold: float = 0.5) -> Tuple[str, float]:
     """
-    Classify text language with confidence score.
-    Returns: (language, confidence)
+    Classify language with additional validation step.
+    Returns 'uncertain' classification for low-confidence results.
     """
-    dev_ratio = devanagari_ratio(text)
-    rom_hi_ratio = romanized_hindi_ratio(text)
-    eng_ratio = english_marker_ratio(text)
+    lang, conf = classify_language(text)
 
-    # Strong Hindi indicators
-    if dev_ratio > 0.3:
-        return ("hindi", min(1.0, dev_ratio + 0.3))
+    if conf < validation_threshold:
+        return ("uncertain", conf)
 
-    # Romanized Hindi
-    if rom_hi_ratio > 0.1 and eng_ratio < 0.05:
-        return ("hindi", min(1.0, rom_hi_ratio * 3))
-
-    # Strong English indicators
-    if eng_ratio > 0.15 and dev_ratio < 0.05 and rom_hi_ratio < 0.05:
-        return ("english", min(1.0, eng_ratio * 3))
-
-    # Mixed or unclear
-    if rom_hi_ratio > 0.05 and eng_ratio > 0.05:
-        return ("mixed", 0.5)
-
-    # Default to English with low confidence
-    if dev_ratio < 0.1 and rom_hi_ratio < 0.05:
-        return ("english", 0.6)
-
-    return ("unknown", 0.3)
+    return (lang, conf)
 
 @dataclass
 class EvaluationResult:
@@ -93,6 +48,9 @@ class EvaluationResult:
     is_flip: bool
     is_preservation: bool
     text_changed: bool
+    # Normalized edit distance between baseline and steered
+    # Included to support change thresholds in downstream analyses
+    edit_distance: float
     dev_ratio_baseline: float
     dev_ratio_steered: float
 
@@ -109,6 +67,7 @@ class EvaluationResult:
             'is_flip': self.is_flip,
             'is_preservation': self.is_preservation,
             'text_changed': self.text_changed,
+            'edit_distance': float(self.edit_distance),
             'dev_ratio_baseline': float(self.dev_ratio_baseline),
             'dev_ratio_steered': float(self.dev_ratio_steered)
         }
@@ -132,8 +91,9 @@ class ComprehensiveEvaluator:
         baseline_lang, baseline_conf = classify_language(baseline)
         steered_lang, steered_conf = classify_language(steered)
 
-        # Check if text actually changed
-        text_changed = baseline.strip() != steered.strip()
+        # Check if text actually changed (edit distance threshold)
+        edit_delta = normalized_edit_distance(baseline.strip(), steered.strip())
+        text_changed = edit_delta >= TEXT_CHANGE_THRESHOLD
 
         # Determine if this is a successful flip
         is_flip = False
@@ -162,6 +122,7 @@ class ComprehensiveEvaluator:
             is_flip=is_flip,
             is_preservation=is_preservation,
             text_changed=text_changed,
+            edit_distance=float(edit_delta),
             dev_ratio_baseline=devanagari_ratio(baseline),
             dev_ratio_steered=devanagari_ratio(steered)
         )
@@ -169,6 +130,11 @@ class ComprehensiveEvaluator:
     def evaluate_batch(self, results: List[Dict]) -> Dict:
         """Evaluate a batch of results and compute aggregate metrics."""
         evaluations = []
+        edit_distances: List[float] = []
+        ppl_baseline_vals: List[float] = []
+        ppl_steered_vals: List[float] = []
+        ppl_delta_vals: List[float] = []
+        semantic_vals: List[float] = []
 
         for r in results:
             prompt = r.get('prompt', '')
@@ -180,6 +146,18 @@ class ComprehensiveEvaluator:
 
             eval_result = self.evaluate_single(prompt, baseline, steered)
             evaluations.append(eval_result)
+            edit_distances.append(eval_result.edit_distance)
+            pb = r.get("ppl_baseline")
+            ps = r.get("ppl_steered")
+            sim = r.get("semantic_sim")
+            if isinstance(pb, (int, float)) and isinstance(ps, (int, float)):
+                pb_f = float(pb)
+                ps_f = float(ps)
+                ppl_baseline_vals.append(pb_f)
+                ppl_steered_vals.append(ps_f)
+                ppl_delta_vals.append(ps_f - pb_f)
+            if isinstance(sim, (int, float)):
+                semantic_vals.append(float(sim))
 
         if not evaluations:
             return {'error': 'No valid examples to evaluate'}
@@ -215,7 +193,7 @@ class ComprehensiveEvaluator:
         # Weighted combination of shadowing and preservation
         effectiveness = 0.6 * shadow_rate + 0.4 * preserve_rate
 
-        return {
+        summary: Dict[str, object] = {
             'mode': self.mode,
             'total_examples': total,
 
@@ -235,10 +213,37 @@ class ComprehensiveEvaluator:
             'avg_baseline_confidence': float(avg_baseline_conf),
             'avg_steered_confidence': float(avg_steered_conf),
             'avg_devanagari_change': float(avg_dev_change),
-
+            'avg_edit_distance': float(np.mean(edit_distances)) if edit_distances else float('nan'),
             # Detailed results
             'evaluations': [e.to_dict() for e in evaluations]
         }
+        quality_metrics: Dict[str, float] = {}
+        if ppl_baseline_vals:
+            pb_arr = np.array(ppl_baseline_vals, dtype=float)
+            ps_arr = np.array(ppl_steered_vals, dtype=float)
+            dp_arr = np.array(ppl_delta_vals, dtype=float)
+            quality_metrics.update(
+                {
+                    "mean_ppl_baseline": float(pb_arr.mean()),
+                    "mean_ppl_steered": float(ps_arr.mean()),
+                    "mean_delta_ppl": float(dp_arr.mean()),
+                    "median_delta_ppl": float(np.median(dp_arr)),
+                    "delta_ppl_count": len(ppl_delta_vals),
+                }
+            )
+        if semantic_vals:
+            sim_arr = np.array(semantic_vals, dtype=float)
+            quality_metrics.update(
+                {
+                    "mean_semantic_similarity": float(sim_arr.mean()),
+                    "median_semantic_similarity": float(np.median(sim_arr)),
+                    "semantic_similarity_count": len(semantic_vals),
+                }
+            )
+        if quality_metrics:
+            summary["quality_metrics"] = quality_metrics
+
+        return summary
 
 def evaluate_english_preservation(results: List[Dict]) -> Dict:
     """
@@ -327,6 +332,23 @@ def main(results_path: str, output_path: Optional[str] = None):
     print("\n--- OVERALL EFFECTIVENESS ---")
     print(f"Combined effectiveness score: {eval_results['effectiveness_score']:.1%}")
     print(f"Text change rate: {eval_results['text_change_rate']:.1%}")
+
+    quality = eval_results.get("quality_metrics", {})
+    if quality:
+        print("\n--- QUALITY METRICS ---")
+        if "mean_delta_ppl" in quality:
+            print(
+                f"ΔPPL (mean/median, count): {quality['mean_delta_ppl']:.3f} / "
+                f"{quality.get('median_delta_ppl', float('nan')):.3f} "
+                f"({quality.get('delta_ppl_count', 0)} examples)"
+            )
+        if "mean_semantic_similarity" in quality:
+            print(
+                f"Semantic similarity (mean/median, count): "
+                f"{quality['mean_semantic_similarity']:.3f} / "
+                f"{quality.get('median_semantic_similarity', float('nan')):.3f} "
+                f"({quality.get('semantic_similarity_count', 0)} examples)"
+            )
 
     # Save detailed results
     if output_path:

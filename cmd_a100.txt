@@ -1,4 +1,7 @@
-# A100: anchor (layer 20 full data)
+# A100: quick sanity (fast)
+python3 he_steer_pipeline.py --debug --layers 20 --mode shadow_hindi --feature-ranking stats --intervention-scope last --a100 && python3 tools/make_report.py --results_dir he_pipeline_results
+
+# A100: anchor single (layer 20, full data, causal ranking)
 python3 he_steer_pipeline.py --layers 20 --train-epochs 120 --samples-per-language 12000 --max-seq-length 512 --mode shadow_hindi --steer-alpha 2.2 --norm-clamp-ratio 0.35 --intervention-scope sequence --top-k-per-layer 48 --eval-prompts 64 --feature-ranking causal --a100 && python3 rescore_results.py he_pipeline_results/results_sae_only.json && python3 tools/gemini_judge.py --results he_pipeline_results/results_sae_only.json --out he_pipeline_results/llm_judge_gemini.json --update-results --cache he_pipeline_results/judge_cache.json && python3 tools/label_features_llm.py --mine-top-texts --limit 150 && python3 tools/make_report.py --results_dir he_pipeline_results && python3 tools/export_bias_eval.py --results he_pipeline_results/results_sae_only.json
 # Optional external audits (uncomment and adjust paths)
 # python3 <path_to_hi-en-bias-eval>/score.py --inputs he_pipeline_results/bias_eval/steered_outputs.tsv --out he_pipeline_results/bias_eval/hi_en_bias.json
@@ -18,3 +21,6 @@ python3 he_steer_pipeline.py --layers 19,20,21 --train-epochs 120 --samples-per-
 
 # A100: late-layer comparison baseline
 python3 he_steer_pipeline.py --layers 29,30,31 --train-epochs 120 --samples-per-language 12000 --mode shadow_hindi --steer-alpha 2.2 --norm-clamp-ratio 0.35 --intervention-scope sequence --top-k-per-layer 48 --eval-prompts 64 --feature-ranking causal --a100 && python3 rescore_results.py he_pipeline_results/results_sae_only.json && python3 tools/gemini_judge.py --results he_pipeline_results/results_sae_only.json --out he_pipeline_results/llm_judge_gemini.json --update-results --cache he_pipeline_results/judge_cache.json && python3 tools/label_features_llm.py --mine-top-texts --limit 150 && python3 tools/make_report.py --results_dir he_pipeline_results && python3 tools/export_bias_eval.py --results he_pipeline_results/results_sae_only.json
+
+# A100: label-aware variant (re-rank with labels, slight Hinglish suppression bias)
+python3 he_steer_pipeline.py --layers 19,20 --train-epochs 120 --samples-per-language 12000 --max-seq-length 512 --mode shadow_hindi --steer-alpha 2.2 --norm-clamp-ratio 0.35 --intervention-scope sequence --top-k-per-layer 32 --feature-ranking label --use-feature-labels --feature-labels-path he_pipeline_results/feature_labels.json --a100 && python3 rescore_results.py he_pipeline_results/results_sae_only.json && python3 tools/gemini_judge.py --results he_pipeline_results/results_sae_only.json --out he_pipeline_results/llm_judge_gemini.json --update-results --cache he_pipeline_results/judge_cache.json && python3 tools/label_features_llm.py --mine-top-texts --limit 150 && python3 tools/make_report.py --results_dir he_pipeline_results && python3 tools/export_bias_eval.py --results he_pipeline_results/results_sae_only.json

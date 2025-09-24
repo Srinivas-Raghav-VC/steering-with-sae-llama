@@ -1,67 +1,109 @@
-# 0. Environment variables (set before anything else)
-export HF_TOKEN="your-huggingface-token"
-export GEMINI_API_KEY="your-gemini-token"
-export CUDA_HOME="/usr/local/cuda"
-export PATH="$CUDA_HOME/bin:$PATH"
-export LD_LIBRARY_PATH="$CUDA_HOME/lib64:$LD_LIBRARY_PATH"
+########################################
+# 0) Environment variables
+########################################
+# Choose ONE shell style: PowerShell (Windows) or bash (Linux)
 
-# 1. System prerequisites
-sudo apt-get update
-sudo apt-get install -y build-essential git wget curl unzip tar \
-    pkg-config gcc g++ make cmake ninja-build \
-    libssl-dev libffi-dev libbz2-dev liblzma-dev zlib1g-dev \
-    libnccl2 libnccl-dev libopenmpi-dev
+# PowerShell (Windows)
+# $env:HF_TOKEN = "<your-hf-token>"
+# $env:GEMINI_API_KEY = "<your-gemini-key>"
+
+# bash (Linux)
+# export HF_TOKEN="<your-hf-token>"
+# export GEMINI_API_KEY="<your-gemini-key>"
+# export CUDA_HOME="/usr/local/cuda"
+# export PATH="$CUDA_HOME/bin:$PATH"
+# export LD_LIBRARY_PATH="$CUDA_HOME/lib64:$LD_LIBRARY_PATH"
+
+########################################
+# 1) System prerequisites (Linux only)
+########################################
+# sudo apt-get update
+# sudo apt-get install -y build-essential git wget curl unzip tar \
+#     pkg-config gcc g++ make cmake ninja-build \
+#     libssl-dev libffi-dev libbz2-dev liblzma-dev zlib1g-dev \
+#     libnccl2 libnccl-dev libopenmpi-dev
 
 # Optional (multi-GPU servers): keep kernels primed
-sudo nvidia-smi -pm 1
+# sudo nvidia-smi -pm 1
 
-# 2. CUDA / driver sanity checks
-#   - Ensure NVIDIA driver matches your CUDA toolkit.
-#   - For H100 boxes, double-check cuDNN + disk space before long runs.
-# (See ops playbooks or vendor docs if adjustments are required.)
+########################################
+# 2) CUDA / driver sanity checks
+########################################
+# - Ensure NVIDIA driver matches your CUDA toolkit.
+# - For H100 boxes, double-check cuDNN + disk space before long runs.
 
-# 3. Python environment (venv with python3)
-python3 -m venv .venv     # creates virtualenv in .venv
-source .venv/bin/activate # activates the venv for bash-compatible shells [esphome.io](https://esphome.io/guides/installing_esphome.html)
+########################################
+# 3) Python environment (venv)
+########################################
+# PowerShell (Windows)
+# python -m venv .venv
+# .\.venv\Scripts\Activate.ps1
 
-# 4. Upgrade packaging tools
-python3 -m pip install --upgrade pip setuptools wheel
+# bash (Linux)
+# python3 -m venv .venv
+# source .venv/bin/activate
 
-# 5. Install CUDA-matched PyTorch (example for CUDA 12.1)
-python3 -m pip install --index-url https://download.pytorch.org/whl/cu121 torch torchvision torchaudio
+########################################
+# 4) Upgrade packaging tools
+########################################
+# python -m pip install --upgrade pip setuptools wheel
 
-# 6. Project checkout
-git clone https://github.com/<your-org>/<he-steering-repo>.git
-cd <he-steering-repo>
+########################################
+# 5) Install CUDA-matched PyTorch
+########################################
+# Pick one (examples):
+# CUDA 12.1 (Windows/Linux):
+#   python -m pip install --index-url https://download.pytorch.org/whl/cu121 torch torchvision torchaudio
+# CPU-only (sanity only):
+#   python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
-# 7. Project dependencies
-python3 -m pip install -r requirements.txt
-python3 -m pip install lookahead-keys-attention liger-kernel
+########################################
+# 6) Project checkout
+########################################
+# git clone https://github.com/<your-org>/<he-steering-repo>.git
+# cd <he-steering-repo>
 
-# 8. Optional audit toolkits
-git clone https://github.com/stolenpyjak/hi-en-bias-eval.git tools/hi-en-bias-eval
-git clone https://github.com/nikinterface/MIPE.git tools/MIPE
-python3 -m pip install -r tools/MIPE/requirements.txt
+########################################
+# 7) Project dependencies
+########################################
+# python -m pip install -r requirements.txt
+# Optional (auto-registered if present):
+# python -m pip install lookahead-keys-attention liger-kernel
 
-# 9. Local configuration
-cp .env.example .env
-# edit .env with tokens, paths, etc.
+########################################
+# 8) Optional audit toolkits
+########################################
+# git clone https://github.com/stolenpyjak/hi-en-bias-eval.git tools/hi-en-bias-eval
+# git clone https://github.com/nikinterface/MIPE.git tools/MIPE
+# python -m pip install -r tools/MIPE/requirements.txt
 
-# 10. Post-run exports (automate after each steering job)
-python3 tools/export_bias_eval.py --results he_pipeline_results/results_sae_only.json
+########################################
+# 9) Local configuration
+########################################
+# cp .env.example .env
+# Edit .env with tokens and paths
 
-# 11. External audits (run manually when needed)
-python3 tools/hi-en-bias-eval/score.py \
-  --inputs he_pipeline_results/bias_eval/steered_outputs.tsv \
-  --out he_pipeline_results/bias_eval/hi_en_bias.json
-python3 tools/MIPE/mipe_eval.py \
-  --inputs he_pipeline_results/bias_eval/steered_outputs.jsonl \
-  --out he_pipeline_results/bias_eval/mipe_scores.json
+########################################
+# 10) Post-run exports (after each steering job)
+########################################
+# python tools/export_bias_eval.py --results he_pipeline_results/results_sae_only.json
 
-# 12. GPU-specific runs
-# Activate env: source .venv/bin/activate
-# Choose the A100 or H100 command queue documented in the README.
+########################################
+# 11) External audits (manual)
+########################################
+# python tools/hi-en-bias-eval/score.py `
+#   --inputs he_pipeline_results/bias_eval/steered_outputs.tsv `
+#   --out he_pipeline_results/bias_eval/hi_en_bias.json
+# python tools/MIPE/mipe_eval.py `
+#   --inputs he_pipeline_results/bias_eval/steered_outputs.jsonl `
+#   --out he_pipeline_results/bias_eval/mipe_scores.json
 
-# 13. Need more Python help?
-# Official documentation for installing modules, using venv, etc.:
-#   https://docs.python.org/3/library/2to3.html [docs.python.org](https://docs.python.org/3/library/2to3.html)
+########################################
+# 12) GPU-specific runs
+########################################
+# Activate env, then choose A100 or H100 command queue in cmd_*.txt.
+
+########################################
+# 13) Help
+########################################
+# Python venv docs: https://docs.python.org/3/library/venv.html

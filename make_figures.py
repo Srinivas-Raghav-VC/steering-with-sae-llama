@@ -216,5 +216,47 @@ def main():
     fig_scope_comparison(runs, outdir)
     fig_strength_sweep(runs, outdir)
 
+    # Optional quality-metric plots if data is present
+    ppl_deltas: List[float] = []
+    sims: List[float] = []
+    for r in runs:
+        for rec in r.get("results", []) or []:
+            pb = rec.get("ppl_baseline")
+            ps = rec.get("ppl_steered")
+            sim = rec.get("semantic_sim")
+            if isinstance(pb, (int, float)) and isinstance(ps, (int, float)):
+                ppl_deltas.append(float(ps) - float(pb))
+            if isinstance(sim, (int, float)):
+                sims.append(float(sim))
+
+    if ppl_deltas:
+        plt.figure(figsize=(6, 4))
+        plt.hist(ppl_deltas, bins=30, color="#1f77b4")
+        mean_delta = float(np.mean(ppl_deltas))
+        plt.axvline(mean_delta, color="#d62728", linestyle="--", label=f"Mean {mean_delta:.2f}")
+        plt.title("Perplexity delta (steered − baseline)")
+        plt.xlabel("Δ PPL")
+        plt.legend()
+        plt.tight_layout()
+        out = outdir / "figure_quality_ppl_delta.png"
+        plt.savefig(out, dpi=200)
+        plt.close()
+        print(f"Saved {out}")
+
+    if sims:
+        plt.figure(figsize=(6, 4))
+        plt.hist(sims, bins=30, color="#2ca02c")
+        mean_sim = float(np.mean(sims))
+        plt.axvline(mean_sim, color="#ff7f0e", linestyle="--", label=f"Mean {mean_sim:.2f}")
+        plt.title("Semantic similarity: baseline vs steered")
+        plt.xlabel("Cosine similarity")
+        plt.xlim(-1.0, 1.0)
+        plt.legend()
+        plt.tight_layout()
+        out = outdir / "figure_quality_semantic_similarity.png"
+        plt.savefig(out, dpi=200)
+        plt.close()
+        print(f"Saved {out}")
+
 if __name__ == "__main__":
     main()

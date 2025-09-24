@@ -21,7 +21,7 @@ import os
 from typing import List, Optional
 
 class GeminiFeatureLabeler:
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-1.5-flash"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-2.0-flash"):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         self.model = model
         self._client = None
