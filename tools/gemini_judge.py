@@ -311,12 +311,14 @@ def main():
             mode_res = (res.get("config", {}).get("eval_mode") or mode or "shadow_hindi").lower()
             target = "english" if mode_res == "shadow_hindi" else "hindi"
             opposite = "hindi" if target == "english" else "english"
+            from tools.lang_detect import normalized_edit_distance, TEXT_CHANGE_THRESHOLD
             eligible = [r for r in recs if r.get("baseline_lang") == opposite]
             flips = 0
             for r in eligible:
                 if r.get("steered_lang") == target:
-                    # guard against trivial copies
-                    if (r.get("steered") or "").strip() != (r.get("baseline") or "").strip():
+                    steered = (r.get("steered") or "").strip()
+                    baseline = (r.get("baseline") or "").strip()
+                    if normalized_edit_distance(baseline, steered) >= TEXT_CHANGE_THRESHOLD:
                         flips += 1
             strict_flip_rate = (flips / len(eligible)) if eligible else None
 

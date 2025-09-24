@@ -34,7 +34,9 @@ plotly>=5.17.0
 # Language processing
 fasttext>=0.9.2
 langdetect>=1.0.9
+langid>=1.1.6
 sacremoses>=0.0.53
+sacrebleu>=2.4.0
 indic-nlp-library>=0.81
 
 # Machine learning utilities

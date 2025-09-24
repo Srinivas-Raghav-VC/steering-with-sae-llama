@@ -29,8 +29,11 @@ def add_critical_plots(out_dir, results, eval_results):
         if records:
             prompt_types = []
             success = []
-
-            target = (eval_results or {}).get("target", "english")
+            # Determine target from eval_results if present, else from results config
+            target = (eval_results or {}).get("target")
+            if not target:
+                mode = (results.get("config", {}) or {}).get("eval_mode", "shadow_hindi").lower()
+                target = "english" if mode == "shadow_hindi" else "hindi"
             for r in records:
                 prompt = r.get("prompt", "")
                 # Detect prompt type based on content
@@ -213,11 +216,32 @@ def create_summary_table(out_dir, results, eval_results):
     summary["Metric"].append("Selected Layers")
     summary["Value"].append(str(results.get("selected_layers", [])))
 
+    # Detector calibration metrics (if available) — show near the top of the table
+    try:
+        calib_path = out_dir / "detector_calibration.json"
+        if calib_path.exists():
+            calib = load_json(calib_path)
+            csum = calib.get("summary", {}) if isinstance(calib, dict) else {}
+            acc = csum.get("accuracy", None)
+            macro_f1 = csum.get("macro_f1", None)
+            if acc is not None:
+                summary["Metric"].append("Detector Accuracy")
+                summary["Value"].append(f"{float(acc):.4f}")
+            if macro_f1 is not None:
+                summary["Metric"].append("Detector Macro-F1")
+                summary["Value"].append(f"{float(macro_f1):.4f}")
+    except Exception as e:
+        # Non-fatal: continue without calibration metrics
+        print(f"Warning: Could not include detector calibration metrics: {e}")
+
     summary["Metric"].append("Success Rate")
     if eval_results and "records" in eval_results:
         records = eval_results.get("records", [])
         if records:
-            success = sum(1 for r in records if r.get("steered_lang") == "english")
+            # Use the right target for the mode
+            mode = (results.get("config", {}) or {}).get("eval_mode", "shadow_hindi").lower()
+            target = "english" if mode == "shadow_hindi" else "hindi"
+            success = sum(1 for r in records if r.get("steered_lang") == target)
             summary["Value"].append(
                 f"{success}/{len(records)} ({100*success/len(records):.1f}%)"
             )
@@ -317,7 +341,12 @@ def main(results_dir: str):
     # Support either results.json (legacy) or results_sae_only.json (current)
     res_path_legacy = out_dir / "results.json"
     res_path_sae = out_dir / "results_sae_only.json"
-    eval_path = out_dir / "evaluation_results.json"  # optional telemetry file
+    # optional telemetry file from an earlier flow OR the output of evaluation_improved.py
+    eval_path = out_dir / "evaluation_results.json"
+    if not eval_path.exists():
+        alt_eval = out_dir / "evaluation_improved.json"
+        if alt_eval.exists():
+            eval_path = alt_eval
     layer_scores = load_json(ls_path) if ls_path.exists() else {}
     if res_path_legacy.exists():
         results = load_json(res_path_legacy)

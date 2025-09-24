@@ -12,6 +12,10 @@ datasets==2.21.0
 tokenizers==0.15.2
 huggingface-hub==0.24.6
 
+# Language / evaluation
+langid==1.1.6
+sacrebleu==2.4.2
+
 # Optional accelerators (install only if compatible with your GPU/driver)
 flash-attn==2.5.8
 xformers==0.0.27.post2
@@ -27,6 +31,9 @@ seaborn==0.13.2
 # ML utils
 scikit-learn==1.5.1
 tqdm==4.66.4
+
+# Steering baselines
+steering-vectors==0.2.1
 
 # Dev
 black==24.8.0

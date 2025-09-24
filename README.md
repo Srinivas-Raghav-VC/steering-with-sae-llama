@@ -31,11 +31,14 @@ export CUDA_VISIBLE_DEVICES=0
 # Debug run (quick test with 2 layers)
 python3 he_steer_pipeline.py --debug
 
-# Full research run (scans all layers, selects top 3)
-python3 he_steer_pipeline.py
+# Full research-oriented runs are provided in cmd_a100.txt / cmd_h100.txt.
+# Common examples:
 
-# Custom configuration
-python3 he_steer_pipeline.py --scan_all_layers --top_k_layers 5 --bonferroni --min_effect_size 0.5
+# Scan a mid-band range and pick top features causally
+python3 he_steer_pipeline.py --test-layer-ranges 18:23 --top-k-per-layer 32 --feature-ranking causal
+
+# Fixed layers (19,20) with causal re-ranking, sequence scope
+python3 he_steer_pipeline.py --layers 19,20 --feature-ranking causal --intervention-scope sequence --steer-alpha 2.2 --norm-clamp-ratio 0.35 --eval-prompts 64
 ```
 
 ##  System Requirements
@@ -74,5 +77,9 @@ Outputs:
 Environment gating:
 - Set $env:DISABLE_GEMINI_DETECTOR = "1" to globally disable Gemini fallback in the detector utilities.
 - When GEMINI_API_KEY is not set, Gemini is automatically disabled.
+
+Cache note:
+- The detector utilities may cache language predictions to he_pipeline_results/detector_cache.json.
+- Delete that file if you recalibrate for a different domain to avoid stale cache effects.
 
 

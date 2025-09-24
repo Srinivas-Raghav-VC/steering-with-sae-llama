@@ -89,7 +89,28 @@
 # python tools/export_bias_eval.py --results he_pipeline_results/results_sae_only.json
 
 ########################################
-# 11) External audits (manual)
+# 11) Detector calibration (run once per labeled dataset)
+########################################
+# python tools/calibrate_detector.py --input data/labeled_hi_en.jsonl --limit 5000 --dataset-name hi-en-dev --compare-heuristic --out he_pipeline_results/detector_calibration.json
+
+########################################
+# 12) Core experiments
+########################################
+# Review cmd_a100.txt or cmd_h100.txt for full experiment queues.
+# Copy he_pipeline_results/ runs/EXP_TAG after each run to keep artifacts versioned.
+
+########################################
+# 13) Baselines & safety bundles
+########################################
+# python rescore_results.py he_pipeline_results/results_sae_only.json
+# python tools/evaluation_improved.py he_pipeline_results/results_sae_only.json he_pipeline_results/evaluation_improved.json
+# python tools/safety_check.py --results he_pipeline_results/results_sae_only.json
+# python make_figures.py --inputs he_pipeline_results/results_sae_only.json --out he_pipeline_results/figs
+# python tools/make_report.py --results_dir he_pipeline_results
+# python tools/steering_vectors_runner.py --results he_pipeline_results/results_sae_only.json --out he_pipeline_results/steering_vectors.json
+
+########################################
+# 14) External audits (manual)
 ########################################
 # python tools/hi-en-bias-eval/score.py `
 #   --inputs he_pipeline_results/bias_eval/steered_outputs.tsv `
@@ -99,11 +120,6 @@
 #   --out he_pipeline_results/bias_eval/mipe_scores.json
 
 ########################################
-# 12) GPU-specific runs
-########################################
-# Activate env, then choose A100 or H100 command queue in cmd_*.txt.
-
-########################################
-# 13) Help
+# 15) Help
 ########################################
 # Python venv docs: https://docs.python.org/3/library/venv.html
