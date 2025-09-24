@@ -103,7 +103,7 @@
 # 13) Baselines & safety bundles
 ########################################
 # python rescore_results.py he_pipeline_results/results_sae_only.json
-# python tools/evaluation_improved.py he_pipeline_results/results_sae_only.json he_pipeline_results/evaluation_improved.json
+# python evaluation_improved.py he_pipeline_results/results_sae_only.json he_pipeline_results/evaluation_improved.json
 # python tools/safety_check.py --results he_pipeline_results/results_sae_only.json
 # python make_figures.py --inputs he_pipeline_results/results_sae_only.json --out he_pipeline_results/figs
 # python tools/make_report.py --results_dir he_pipeline_results

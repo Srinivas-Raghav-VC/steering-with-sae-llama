@@ -24,16 +24,22 @@ def add_critical_plots(out_dir, results, eval_results):
     fig_dir = out_dir / "figures"
 
     # 1. Steering Effectiveness by Prompt Type
-    if eval_results and "records" in eval_results:
-        records = eval_results.get("records", [])
+    if eval_results:
+        # Support both legacy ("records") and improved ("evaluations") schemas
+        records = []
+        if isinstance(eval_results, dict):
+            records = eval_results.get("records") or eval_results.get("evaluations") or []
         if records:
             prompt_types = []
             success = []
-            # Determine target from eval_results if present, else from results config
-            target = (eval_results or {}).get("target")
+            # Determine target from eval_results if present, else from results config/mode
+            target = (eval_results or {}).get("target") if isinstance(eval_results, dict) else None
             if not target:
-                mode = (results.get("config", {}) or {}).get("eval_mode", "shadow_hindi").lower()
-                target = "english" if mode == "shadow_hindi" else "hindi"
+                # Prefer evaluator mode if available, else fall back to results.config.eval_mode
+                mode = (eval_results or {}).get("mode") if isinstance(eval_results, dict) else None
+                if not mode:
+                    mode = (results.get("config", {}) or {}).get("eval_mode", "shadow_hindi").lower()
+                target = "english" if str(mode).lower() == "shadow_hindi" else "hindi"
             for r in records:
                 prompt = r.get("prompt", "")
                 # Detect prompt type based on content
@@ -235,12 +241,12 @@ def create_summary_table(out_dir, results, eval_results):
         print(f"Warning: Could not include detector calibration metrics: {e}")
 
     summary["Metric"].append("Success Rate")
-    if eval_results and "records" in eval_results:
-        records = eval_results.get("records", [])
+    if eval_results and isinstance(eval_results, dict):
+        records = eval_results.get("records") or eval_results.get("evaluations") or []
         if records:
-            # Use the right target for the mode
-            mode = (results.get("config", {}) or {}).get("eval_mode", "shadow_hindi").lower()
-            target = "english" if mode == "shadow_hindi" else "hindi"
+            # Determine target using evaluator mode if present, else results config
+            mode = (eval_results or {}).get("mode") or (results.get("config", {}) or {}).get("eval_mode", "shadow_hindi")
+            target = "english" if str(mode).lower() == "shadow_hindi" else "hindi"
             success = sum(1 for r in records if r.get("steered_lang") == target)
             summary["Value"].append(
                 f"{success}/{len(records)} ({100*success/len(records):.1f}%)"
@@ -610,17 +616,27 @@ def main(results_dir: str):
     # 5) Evaluation summary (requires you to save it; see below how)
     if eval_path.exists():
         eval_results = load_json(eval_path)
-        records = eval_results.get("records", [])
+        records = []
+        if isinstance(eval_results, dict):
+            records = eval_results.get("records") or eval_results.get("evaluations") or []
         df_eval = pd.DataFrame(records)
-        # success rate
-        success = np.mean(
-            df_eval["steered_lang"] == eval_results.get("target", "english")
-        )
+        # success rate (guard for empty data and missing columns)
+        # Determine target
+        mode = (eval_results or {}).get("mode") if isinstance(eval_results, dict) else None
+        target = (eval_results or {}).get("target") if isinstance(eval_results, dict) else None
+        if not target:
+            if not mode:
+                mode = (results.get("config", {}) or {}).get("eval_mode", "shadow_hindi")
+            target = "english" if str(mode).lower() == "shadow_hindi" else "hindi"
+        success = float("nan")
+        if not df_eval.empty and "steered_lang" in df_eval.columns:
+            success = np.mean(df_eval["steered_lang"] == target)
         with open(tab_dir / "evaluation_summary.txt", "w", encoding="utf-8") as f:
             f.write(
-                f"Success rate ({eval_results.get('mode','shadow_hindi')} → {eval_results.get('target','english')}): {success:.3f}\n"
+                f"Success rate ({str(mode) if mode else 'unknown'} → {target}): {0.0 if np.isnan(success) else success:.3f}\n"
             )
-        df_eval.to_csv(tab_dir / "evaluation_details.csv", index=False)
+        if not df_eval.empty:
+            df_eval.to_csv(tab_dir / "evaluation_details.csv", index=False)
 
         # If telemetry exists per record, you can create heatmaps of deltaL2 per layer
         all_tel = []
@@ -686,11 +702,24 @@ def main(results_dir: str):
     if eval_path.exists():
         try:
             eval_results = load_json(eval_path)
-            recs = eval_results.get("records", [])
+            recs = []
+            if isinstance(eval_results, dict):
+                recs = eval_results.get("records") or eval_results.get("evaluations") or []
             if recs:
-                target = eval_results.get("target", "english")
-                flips = sum(1 for r in recs if r.get("steered_lang") == target)
-                strict_flip_rate = flips / max(1, len(recs))
+                mode = (eval_results or {}).get("mode") if isinstance(eval_results, dict) else None
+                target = (eval_results or {}).get("target") if isinstance(eval_results, dict) else None
+                if not target:
+                    if not mode:
+                        mode = (results.get("config", {}) or {}).get("eval_mode", "shadow_hindi")
+                    target = "english" if str(mode).lower() == "shadow_hindi" else "hindi"
+                # Prefer evaluator's strict flip signal if present
+                if any("is_flip" in r for r in recs):
+                    eligible = [r for r in recs if r.get("baseline_lang") in ("hindi", "english")]
+                    flips = sum(1 for r in eligible if r.get("is_flip"))
+                    strict_flip_rate = flips / max(1, len(eligible)) if eligible else None
+                else:
+                    flips = sum(1 for r in recs if r.get("steered_lang") == target)
+                    strict_flip_rate = flips / max(1, len(recs))
         except Exception:
             pass
     # Fallback: compute strict flip rate from 'results' schema
@@ -700,12 +729,16 @@ def main(results_dir: str):
             mode = (results.get("config", {}).get("eval_mode") or "shadow_hindi").lower()
             target = "english" if mode == "shadow_hindi" else "hindi"
             eligible = [r for r in recs if (r.get("baseline_lang") == ("hindi" if target == "english" else "english"))]
-            flips = sum(
-                1
-                for r in eligible
-                if r.get("steered_lang") == target
-                and (r.get("steered") or "").strip() != (r.get("baseline") or "").strip()
-            )
+            # Use edit-distance threshold when available, else fall back to string inequality
+            def changed_enough(r):
+                try:
+                    ed = r.get("edit_distance", None)
+                    if isinstance(ed, (int, float)):
+                        return float(ed) >= 0.05
+                except Exception:
+                    pass
+                return (r.get("steered") or "").strip() != (r.get("baseline") or "").strip()
+            flips = sum(1 for r in eligible if r.get("steered_lang") == target and changed_enough(r))
             strict_flip_rate = flips / max(1, len(eligible)) if eligible else None
         except Exception:
             strict_flip_rate = None
